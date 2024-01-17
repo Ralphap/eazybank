@@ -1,19 +1,71 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
 trigger:
-- main
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - 'cards/*'
+      - 'accounts/*'
+      - 'loans/*'
 
 pool:
   vmImage: ubuntu-latest
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+stages:
+  - stage: ChangedFolders
+    jobs:
+      - job: preCheck
+        steps:
+          - powershell: |
+              $files=$(git diff HEAD HEAD~ --name-only)
+              Write-Host changed files are $files
+              $temp=$files -split ' '
+              $hasAccountsChanges = $False
+              $hasLoansChanges = $False
+              $hasCardsChanges = $False
+              ForEach ($file in $temp) {
+                if ($file -like 'accounts/*') {
+                  $hasAccountsChanges = $True
+                } elseif ($file -like 'loans/*') {
+                  $hasLoansChanges = $True
+                } elseif ($file -like 'cards/*') {
+                  $hasCardsChanges = $True
+                }
+              }
+              Write-Host "##vso[task.setvariable variable=hasAccountsChanges;isOutput=true]$hasAccountsChanges"
+              Write-Host "##vso[task.setvariable variable=hasLoansChanges;isOutput=true]$hasLoansChanges"
+              Write-Host "##vso[task.setvariable variable=hasCardsChanges;isOutput=true]$hasCardsChanges"
+            name: checkChanges
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+  - stage: Accounts
+    dependsOn: ChangedFolders
+    condition: eq(stageDependencies.ChangedFolders.checkChanges.outputs['preCheck.hasAccountsChanges'], 'True')
+    jobs:
+      - job: buildAccounts
+        steps:
+          - task: Maven@3
+            inputs:
+              mavenPomFile: 'accounts/pom.xml'
+              goals: 'package'
+
+  - stage: Loans
+    dependsOn: ChangedFolders
+    condition: eq(stageDependencies.ChangedFolders.checkChanges.outputs['preCheck.hasLoansChanges'], 'True')
+    jobs:
+      - job: buildLoans
+        steps:
+          - task: Maven@3
+            inputs:
+              mavenPomFile: 'loans/pom.xml'
+              goals: 'package'
+
+  - stage: Cards
+    dependsOn: ChangedFolders
+    condition: eq(stageDependencies.ChangedFolders.checkChanges.outputs['preCheck.hasCardsChanges'], 'True')
+    jobs:
+      - job: buildCards
+        steps:
+          - task: Maven@3
+            inputs:
+              mavenPomFile: 'cards/pom.xml'
+              goals: 'package'
